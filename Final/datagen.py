@@ -178,13 +178,15 @@ def main():
     alpha_net.load_state_dict(torch.load("alpha_net.pt", map_location=DEVICE))
     alpha_net.eval()
 
-    approx_gb_per_ep = (
-        SAMPLES_PER_EPISODE * (3 + 1 + 1) * GRID * GRID * 4
-    ) / (1024 ** 3)
+    total_samples = N_EPISODES * SAMPLES_PER_EPISODE
+    approx_gb = (total_samples * (3 + 1 + 1) * GRID * GRID * 4) / (1024 ** 3)
     print(
-        f"[datagen] ~{approx_gb_per_ep:.4f} GB / episode  "
-        f"-> ~{approx_gb_per_ep * N_EPISODES:.1f} GB total for {N_EPISODES} episodes"
+        f"[datagen] target total samples = {total_samples}  "
+        f"(~{approx_gb:.1f} GB total, individual files)"
     )
+
+    global_idx = 0
+    n_digits = len(str(total_samples))  # zero-pad width based on max possible count
 
     for ep in range(N_EPISODES):
         X_all, E_all, Q_all = rollout_episode_full(alpha_net)
@@ -192,22 +194,20 @@ def main():
         idx = rng.choice(STEPS, size=SAMPLES_PER_EPISODE, replace=False)
         idx.sort()
 
-        X_sample = X_all[idx]
-        E_sample = E_all[idx]
-        Q_sample = Q_all[idx]
-
-        np.save(os.path.join(X_DIR, f"ep{ep:05d}.npy"), X_sample)
-        np.save(os.path.join(E_DIR, f"ep{ep:05d}.npy"), E_sample)
-        np.save(os.path.join(Q_DIR, f"ep{ep:05d}.npy"), Q_sample)
+        for t in idx:
+            fname = f"{global_idx:0{n_digits}d}.npy"
+            np.save(os.path.join(X_DIR, fname), X_all[t])   # shape (3, 100, 100)
+            np.save(os.path.join(E_DIR, fname), E_all[t])   # shape (100, 100)
+            np.save(os.path.join(Q_DIR, fname), Q_all[t])   # shape (100, 100)
+            global_idx += 1
 
         if (ep + 1) % 25 == 0:
-            total_samples = (ep + 1) * SAMPLES_PER_EPISODE
             print(
                 f"[datagen] episode {ep+1}/{N_EPISODES} done  "
-                f"({total_samples} samples saved so far)"
+                f"({global_idx} individual samples saved so far)"
             )
 
-    print("done generating dataset")
+    print(f"done generating dataset, total samples saved: {global_idx}")
 
 
 if __name__ == "__main__":

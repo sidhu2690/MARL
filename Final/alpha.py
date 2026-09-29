@@ -2,16 +2,16 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-# ----------------------------------------------------------------------
-# Config — 15 robots, 30% max adversarial fraction, 100x100 grid
-# ----------------------------------------------------------------------
-GRID = 100
-N_ROBOTS = 15
+GRID = 30
+N_ROBOTS = 10
 ADV_FRAC_MAX = 0.3
-STEPS = 1000
+STEPS = 400
 EPSILON = 0.05
 CONTRA_THRESH = 0.2
 SEED = 40
+
+ALPHA_EPISODES = 1000
+LR = 2e-3
 
 rng = np.random.default_rng(SEED)
 torch.manual_seed(SEED)
@@ -20,9 +20,6 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"[device] using {DEVICE}")
 
 
-# ----------------------------------------------------------------------
-# Environment helpers
-# ----------------------------------------------------------------------
 def make_true_map(grid):
     xs, ys = np.meshgrid(np.arange(grid), np.arange(grid))
     field = np.zeros((grid, grid))
@@ -55,18 +52,19 @@ def random_walk(grid, steps):
     return cells
 
 
-def report_value(true_val, adversarial, cell):
+def report_value(true_val, adversarial, cell, agent_id):
     if adversarial:
+        seed = abs(hash((agent_id, cell))) % (2**32)
+        local_rng = np.random.default_rng(seed)
         bias_sign = 1 if (hash(cell) % 2 == 0) else -1
-        val = true_val + bias_sign * rng.uniform(0.15, 0.3) + rng.normal(0, 0.05)
+        bias_mag = local_rng.uniform(0.15, 0.3)
+        noise = local_rng.normal(0, 0.05)
+        val = true_val + bias_sign * bias_mag + noise
     else:
         val = true_val + rng.normal(0, 0.02)
     return float(np.clip(val, 0, 1))
 
 
-# ----------------------------------------------------------------------
-# AlphaNet
-# ----------------------------------------------------------------------
 class AlphaNet(nn.Module):
     def __init__(self):
         super().__init__()
@@ -83,7 +81,7 @@ class AlphaNet(nn.Module):
         return self.net(feats).squeeze(-1)
 
 
-def train_alpha_net(episodes=1000, lr=2e-3):
+def train_alpha_net(episodes=ALPHA_EPISODES, lr=LR):
     alpha_net = AlphaNet().to(DEVICE)
     optimizer = torch.optim.Adam(alpha_net.parameters(), lr=lr)
     loss_history = []
@@ -105,9 +103,9 @@ def train_alpha_net(episodes=1000, lr=2e-3):
 
             for i in range(N_ROBOTS):
                 cell = walks[i][t]
-                r_i = report_value(TRUE_MAP[cell], is_adv[i], cell)
-                others = cell_reports.get(cell, [])
+                r_i = report_value(TRUE_MAP[cell], is_adv[i], cell, i)
 
+                others = [(j, r_j) for j, r_j in cell_reports.get(cell, []) if j != i]
                 if others:
                     residuals = [abs(r_i - r_j) for _, r_j in others]
                     D_sum[i] += float(np.mean(residuals))
@@ -160,19 +158,16 @@ def train_alpha_net(episodes=1000, lr=2e-3):
 
         loss_history.append(ep_loss / STEPS)
 
-        print(
-            f"[alpha_net] episode {ep+1}/{episodes}  "
+        if ep % 100 == 0:
+          print(
+            f"[alpha_net] episode {ep}/{episodes}  "
             f"avg loss {loss_history[-1]:.5f}"
-        )
+          )
 
     return alpha_net, loss_history
 
 
 if __name__ == "__main__":
-    ALPHA_EPISODES = 1000
-
-    print("=== training alpha_net (GRID=100, N_ROBOTS=15, ADV_FRAC_MAX=0.3) ===")
-    alpha_net, alpha_loss = train_alpha_net(episodes=ALPHA_EPISODES)
-
+    alpha_net, alpha_loss = train_alpha_net()
     torch.save(alpha_net.state_dict(), "alpha_net.pt")
-    print("\nsaved alpha_net.pt")
+    print("[saved] alpha_net.pt")

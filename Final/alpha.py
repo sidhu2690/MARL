@@ -54,7 +54,7 @@ def random_walk(grid, steps):
 
 def report_value(true_val, adversarial, cell, agent_id):
     if adversarial:
-        seed = abs(hash((agent_id, cell))) % (2**32)
+        seed = abs(hash(cell)) % (2**32)
         local_rng = np.random.default_rng(seed)
         bias_sign = 1 if (hash(cell) % 2 == 0) else -1
         bias_mag = local_rng.uniform(0.15, 0.3)

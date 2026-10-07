@@ -5,8 +5,8 @@ import torch.nn as nn
 GRID = 30
 N_ROBOTS = 10
 ADV_FRAC_MAX = 0.3
-STEPS = 400
-EPSILON = 1e-6
+STEPS = 750
+EPSILON = 0.2
 CONTRA_THRESH = 0.2
 SEED = 40
 
